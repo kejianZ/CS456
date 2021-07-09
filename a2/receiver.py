@@ -37,6 +37,7 @@ class receiver_proc:
                 output.write(payload)
                 self.sendAck(seq)
             elif p_type == 2:
+                self.sendAck(-1)
                 break
         self.sendSocket.close()
         self.recSocket.close()
@@ -50,7 +51,10 @@ class receiver_proc:
         return p_type, seq_num, length, data
     
     def sendAck(self, seq_num):
-        packet = struct.pack('III0s', 0, seq_num, 0, ''.encode())
+        if seq_num == -1:
+            packet = struct.pack('III0s', 2, 0, 0, ''.encode())
+        else:
+            packet = struct.pack('III0s', 0, seq_num, 0, ''.encode())
         self.sendSocket.sendto(packet, (self.emu_add, self.emu_port))
 
     

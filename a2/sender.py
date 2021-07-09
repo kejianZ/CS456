@@ -32,12 +32,13 @@ class server_proc:
     def send_thread(self):
         couter = 0
         while True:
-            chunk = self.file.read(500)
+            chunk = self.file.read(50)
             if not chunk:
                 break
             self.wdn_sem.acquire()
-            packet = self.cons_packet(1, couter // 32, chunk)
+            packet = self.cons_packet(1, couter % 32, chunk)
             self.sendSocket.sendto(packet, (self.emu_add, self.emu_port))
+            couter += 1
         packet = self.cons_packet(2, 0, '')
         self.sendSocket.sendto(packet, (self.emu_add, self.emu_port))
     
@@ -46,13 +47,33 @@ class server_proc:
             ack_msg, sadd = self.ackSocket.recvfrom(1024)
 
             p_type, ack_seq, length, payload = self.process_packet(ack_msg)
+            print(p_type)
             if p_type == 0:
                 for i in range(0, ack_seq - self.last_ack):
                     self.wdn_sem.release()
                 self.last_ack = ack_seq
+            else:
+                break
     
     def timer_thread(self):
         print()
+
+    def run(self):
+        if not self.valid:
+            return
+        try:
+            self.file = open(self.filename)
+        except:
+            print("An error occures while opening the file")
+            return
+        
+        # create thread for sending packet, receiving acknowledgement and timer
+        send_t = threading.Thread(target=self.send_thread)
+        ack_t = threading.Thread(target=self.ack_thread)
+        send_t.start()
+        ack_t.start()
+        send_t.join()
+        ack_t.join()
 
     def process_packet(self, byte_stream):
         p_type = int.from_bytes(byte_stream[0:4], byteorder='little', signed=False)
@@ -65,17 +86,6 @@ class server_proc:
         style = 'III' + str(len(payload)) + 's'
         packet = struct.pack(style, type, seq_num, len(payload), payload.encode())
         return packet
-
-    def run(self):
-        if not self.valid:
-            return
-        try:
-            self.file = open(self.filename)
-        except:
-            print("An error occures while opening the file")
-            return
-        
-        self.send_thread()
         
 
         
