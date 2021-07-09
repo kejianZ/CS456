@@ -99,7 +99,7 @@ class server_proc:
         timer_t.join()
     
     def resend(self):
-        self.sendSocket.sendto(self.buffer[self.last_ack + 1], (self.emu_add, self.emu_port))
+        self.sendSocket.sendto(self.buffer[(self.last_ack + 1) % 32], (self.emu_add, self.emu_port))
         self.wdn_size = 1
         self.wdn_sem = threading.Semaphore(0)   # reset window size to 1, and because we resend the timeout packet, reduce avaliable space to 0
         self.start_time = time.time()

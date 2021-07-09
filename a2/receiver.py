@@ -19,29 +19,44 @@ class receiver_proc:
         except OSError as e:
             print("Valid type of arguements should be provided")
 
-        self.last_ack = -1
+        self.last_receive = -1
         self.sendSocket = s.socket(AF_INET, SOCK_DGRAM)
-        self.sendSocket.bind(('', 0))
         self.recSocket = s.socket(AF_INET, SOCK_DGRAM)
+        self.buffer = [None for _ in range(32)]
+        self.sendSocket.bind(('', 0))
         self.recSocket.bind(('', self.rec_port))
 
     def run(self):
-        couter = 0
-        output = open(self.filename, 'w')
+        self.file_writer = open(self.filename, 'w')
         if not self.valid:
             return
         while True:
             packet, sadd = self.recSocket.recvfrom(1024)
             p_type, seq, length, payload = self.process_packet(packet)
             if p_type == 1:
-                output.write(payload)
-                self.sendAck(seq)
+                self.write_packet(seq, payload)                
             elif p_type == 2:
                 self.sendAck(-1)
                 break
         self.sendSocket.close()
         self.recSocket.close()
-        output.close()
+        self.file_writer.close()
+
+    def write_packet(self, seq, payload):
+        if seq == (self.last_receive + 1) % 32: # a packet of correct order arrived
+            self.file_writer.write(payload)
+            for i in range(1, 31): # check if previous buffered payload in buffer
+                if self.buffer[(seq + i) % 32] == None:
+                    break
+                else:
+                    self.file_writer.write(self.buffer[(seq + i) % 32])
+                    self.buffer[(seq + i) % 32] = None  # clear the block in the buffer   
+            self.last_receive = seq
+        elif seq <= self.last_receive + 10 or seq <= (self.last_receive + 10) % 32:
+            if self.buffer[seq] == None: # discard if previous buffered
+                self.buffer[seq] = payload
+
+        self.sendAck(self.last_receive)
 
     def process_packet(self, byte_stream):
         p_type = int.from_bytes(byte_stream[0:4], byteorder='little', signed=False)
