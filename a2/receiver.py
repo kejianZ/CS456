@@ -1,8 +1,7 @@
 from socket import *
 import socket as s
-import struct
 import sys
-import threading
+from packet import Packet
 
 class receiver_proc:
     def __init__(self, args):
@@ -32,7 +31,8 @@ class receiver_proc:
             return
         while True:
             packet, sadd = self.recSocket.recvfrom(1024)
-            p_type, seq, length, payload = self.process_packet(packet)
+            print(Packet(packet))
+            p_type, seq, length, payload = Packet(packet).decode()
             if p_type == 1:
                 self.write_packet(seq, payload)                
             elif p_type == 2:
@@ -57,19 +57,12 @@ class receiver_proc:
                 self.buffer[seq] = payload
 
         self.sendAck(self.last_receive)
-
-    def process_packet(self, byte_stream):
-        p_type = int.from_bytes(byte_stream[0:4], byteorder='little', signed=False)
-        seq_num = int.from_bytes(byte_stream[4:8], byteorder='little', signed=False)
-        length = int.from_bytes(byte_stream[8:12], byteorder='little', signed=False)
-        data = byte_stream[12:].decode()
-        return p_type, seq_num, length, data
     
     def sendAck(self, seq_num):
         if seq_num == -1:
-            packet = struct.pack('III0s', 2, 0, 0, ''.encode())
+            packet = Packet(2,0,0,'').encode()
         else:
-            packet = struct.pack('III0s', 0, seq_num, 0, ''.encode())
+            packet = Packet(0,seq_num,0,'').encode()
         self.sendSocket.sendto(packet, (self.emu_add, self.emu_port))
 
     
