@@ -25,6 +25,7 @@ class sender_proc:
         # initiate fileds in sender process
         self.last_ack = -1
         self.last_send = -1
+        self.send_ptr = 0                      # seq num of next packet should be sent
         self.wdn_size = 1
         self.finish = False
         self.buffer = [None for _ in range(32)]             # buffer used to resend data
@@ -32,7 +33,6 @@ class sender_proc:
         
         self.ackSocket = s.socket(AF_INET, SOCK_DGRAM)      # socket used to receive ACK
         self.sendSocket = s.socket(AF_INET, SOCK_DGRAM)  
-        self.resendSocket = s.socket(AF_INET, SOCK_DGRAM)   # socket used to resend packet
         
         self.wdn_sem = threading.Semaphore(self.wdn_size)   # semaphore is used for sending window      
         self.timerlck = threading.Lock()                    # this lock is used to protect timer
@@ -40,39 +40,7 @@ class sender_proc:
         
         self.ackSocket.bind(('', self.ack_port))
         self.sendSocket.bind(('', 0))
-        self.resendSocket.bind(('', 0))
-
-    def send_thread(self):
-        while True:
-            chunk = self.file.read(5)     
-            if not chunk:                       # reach the EOF
-                break
-            self.wdn_sem.acquire()              # if there are avalible space in sender window
-            self.send_data(chunk)      
-        self.file.close()
-        packet = Packet(2, 0, 0, ' ').encode()  # send EOT packet
-        self.sendSocket.sendto(packet, (self.emu_add, self.emu_port))
-
-    def ack_thread(self):
-        while(True):           
-            ack_msg, _ = self.ackSocket.recvfrom(1024)
-            p_type, ack_seq, _, _ = Packet(ack_msg).decode()
-            if p_type == 0:             # ACK message
-                self.process_ack(ack_seq)
-            else:                       # EOT message
-                self.finish = True      # tell timer to terminate
-                break
-
-    def timer_thread(self):
-        while(True):
-            if self.finish: # EOT received, should terminate now
-                break
-            self.timerlck.acquire()
-            if self.timer_started and time.time() - self.start_time > self.timeout / 1000: # timeout occures
-                self.resend()
-            self.timerlck.release()
-        
-
+    
     def run(self):
         if not self.valid:
             return
@@ -96,13 +64,56 @@ class sender_proc:
         finally:
             self.sendSocket.close()
             self.ackSocket.close()
-            self.resendSocket.close()
 
+    def send_thread(self):
+        while True:
+            if self.send_ptr != (self.last_send + 1) % 32:  # send_ptr <= last_send means the packet been sent
+                self.resend_data()
+            else:
+                chunk = self.file.read(5)     
+                if not chunk:           # reach the EOF
+                    break
+                self.send_data(chunk)      
+        self.file.close()       
+        self.sendSocket.sendto(Packet(2, 0, 0, '').encode(), (self.emu_add, self.emu_port)) # send EOT packet
+
+    def ack_thread(self):
+        while(True):           
+            ack_msg, _ = self.ackSocket.recvfrom(1024)
+            p_type, ack_seq, _, _ = Packet(ack_msg).decode()
+            if p_type == 0:             # ACK message
+                self.process_ack(ack_seq)
+            else:                       # EOT message
+                self.finish = True      # tell timer to terminate
+                break
+
+    def timer_thread(self):
+        while(True):
+            if self.finish: # EOT received, should terminate now
+                break
+            self.timerlck.acquire()
+            if self.timer_started and time.time() - self.start_time > self.timeout / 1000: # timeout occures
+                self.reset_ptr()
+            self.timerlck.release()
+    
+    def resend_data(self):
+        self.wdn_sem.acquire()                  # if there are avalible space in sender window
+        self.sendSocket.sendto(self.buffer[self.send_ptr], (self.emu_add, self.emu_port))
+        self.send_ptr = (self.send_ptr + 1) % 32
+
+        self.timerlck.acquire()
+        if not self.timer_started:              # if timer not started, start it with current time
+            self.timer_started = True
+            self.start_time = time.time()
+        self.timerlck.release() 
+     
     def send_data(self, chunk):
-        self.last_send = (self.last_send + 1) % 32
-        packet = Packet(1, self.last_send, len(chunk), chunk).encode()
+        self.wdn_sem.acquire()                  # if there are avalible space in sender window
+        packet = Packet(1, self.send_ptr, len(chunk), chunk).encode()
         self.sendSocket.sendto(packet, (self.emu_add, self.emu_port))
-        self.buffer[self.last_send] = packet    # buff package at buffer
+        self.buffer[self.send_ptr] = packet    # buff package at buffer
+        self.last_send = self.send_ptr
+        self.send_ptr = (self.send_ptr + 1) % 32
         
         self.timerlck.acquire()
         if not self.timer_started:              # if timer not started, start it with current time
@@ -112,15 +123,15 @@ class sender_proc:
     
     def process_ack(self, ack_seq):
         dis = self.ack_distance(ack_seq)
-        if dis > self.wdn_size:             
-            return                          # acknowledge with sequence number not in the window, discard it
-        self.last_ack = ack_seq             # valid new ack sequence number, update last_ack
+        if dis > 10:             
+            return                                  # acknowledge with sequence number not in the window, discard it
+        self.last_ack = ack_seq                     # valid new ack sequence number, update last_ack
 
         self.timerlck.acquire() 
-        if self.last_send == self.last_ack:
-            self.timer_started = False      # no more flying packet, stop timer
+        if self.send_ptr == (self.last_ack + 1) % 32:
+            self.timer_started = False              # no more flying packet, stop timer
         else:
-            self.start_time = time.time()   # reset timer if there exist flying packet
+            self.start_time = time.time()           # reset timer if there exist flying packet
         self.timerlck.release()
                
         self.wdnlck.acquire()
@@ -138,11 +149,11 @@ class sender_proc:
         else:
             return ack_seq + 32 - self.last_ack
     
-    def resend(self):
-        self.resendSocket.sendto(self.buffer[(self.last_ack + 1) % 32], (self.emu_add, self.emu_port))
+    def reset_ptr(self):
         self.wdnlck.acquire()
         self.wdn_size = 1
-        self.wdn_sem = threading.Semaphore(0)   # reset window size to 1, and because we resend the timeout packet, reduce avaliable space to 0
+        self.wdn_sem = threading.Semaphore(1)   # reset window size to 1
+        self.send_ptr = (self.last_ack + 1) % 32
         self.wdnlck.release()
         self.start_time = time.time()
                 
