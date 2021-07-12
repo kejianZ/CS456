@@ -1,0 +1,15 @@
+1. The source codes are sender.py receiver.py and provided emulator.py and packet.py
+2. These code was built on waterloo ubuntu2004 machines, it is tested on both localhost(locally on ubuntu2004-008) and between different ubuntu servers (between ubuntu2004-004 and ubuntu2004-008)
+3. The python version while testing is python 3.8.10
+4. Instructions on running codes:
+    a. first running the network_emulator by excute ./nEmulator and provide 9 arguments:
+        ./nEmulator <emumulator's receiving UDP port number in the forward (sender) direction> <receiver's network address> <receiver's receiving UDP port number> <emulator's receiving UDP port number in the backward (receiver) direction> <sender's network address> <sender's receiving UDP port number> <maximum delay of the link in units of millisecond> <packet discard probability> <verbose-mode>(Boolean: Set to 1, the network emulator will output its internal processing)
+    b. then running receiver by excute ./receiver and provide 4 arguments:
+        ./receiver <hostname for the network emulator> <UDP port number used by the link emulator to receive ACKs from the receiver> <UDP port number used by the receiver  to  receive  data  from  the  emulator> <name  of  the  file  into  which  the received data is written>
+    c. lastly running sender by excute ./sender and provide 5 arguments:
+        ./sender <host  address  of  the  network  emulator>, <UDP  port  number  used  by  the  emulator  to receive data from the sender> <UDP port number used by the sender to receive ACKs from the emulator> <timeout intervalin units of millisecond> <name of the file to be transferred>
+    
+    Example:
+    ./nEmulator 6991 localhost 6994 6993 localhost 6992 1 0 0
+    ./receiver localhost 6993 6994 <outfile>
+    ./sender localhost 6991 6992 50 <inputfile>

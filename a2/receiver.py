@@ -24,27 +24,34 @@ class receiver_proc:
         self.buffer = [None for _ in range(32)]             # buffer to store not-in-order packet 
         self.sendSocket.bind(('', 0))                       # socket to send ACK packet
         self.recSocket.bind(('', self.rec_port))
+        self.event_ctr = 0
 
     def run(self):
         self.file_writer = open(self.filename, 'w')
+        self.logger = open('arrival.log', 'w')
         if not self.valid:
             return
         while True:
             packet, _ = self.recSocket.recvfrom(1024)
             p_type, seq, _, payload = Packet(packet).decode()
             if p_type == 1:         # data packet
+                self.logger.write('t=' + str(self.event_ctr) + ' ' + str(seq) + '\n')
+                self.event_ctr += 1
                 self.write_packet(seq, payload)                
             elif p_type == 2:       # EOT packet
+                self.logger.write('t=' + str(self.event_ctr) + ' EOT\n')
                 self.sendAck(-1)    # return a same EOT packet
                 break
         self.sendSocket.close()
         self.recSocket.close()
         self.file_writer.close()
+        self.logger.close()
 
     def write_packet(self, seq, payload):
         if seq == (self.last_receive + 1) % 32:         # a packet of correct order arrived
             self.file_writer.write(payload)
             tem = seq
+            self.buffer[seq] = None
             for i in range(1, 10):                      # check if previous buffered payload in buffer
                 if self.buffer[(seq + i) % 32] == None:
                     break
@@ -63,7 +70,7 @@ class receiver_proc:
         if p2 > p1:
             return p2 - p1
         else:
-            return p2 - p1 + 32
+            return p2 + 32 - p1
 
     def sendAck(self, seq_num):
         if seq_num == -1:
