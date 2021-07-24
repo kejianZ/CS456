@@ -1,0 +1,4 @@
+Assignment 1 is written by python thus no Makefile is needed to compile the code
+By run ./server.sh <req_code> and ./client.sh <server address> <n_port> <req_code> <msg> to run server and client respectively
+IP address and host both supported
+The assignment was coded and tested on waterloo linux remote via using vscode ssh, using waterloo environment default version of python to run the program
